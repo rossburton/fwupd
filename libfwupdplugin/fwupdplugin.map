@@ -569,6 +569,7 @@ LIBFWUPDPLUGIN_1.4.0 {
     fu_hid_device_set_report;
     fu_plugin_get_config_value_boolean;
     fu_plugin_runner_device_created;
+    fu_udev_device_get_parent_name;
     fu_udev_device_get_sysfs_attr;
   local: *;
 } LIBFWUPDPLUGIN_1.3.9;
