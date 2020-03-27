@@ -1,9 +1,15 @@
 cargs = ['-DG_LOG_DOMAIN="FuPluginThunderbolt"']
 
+install_data([
+  'thunderbolt.quirk',
+  ],
+  install_dir: join_paths(datadir, 'fwupd', 'quirks.d')
+)
 fu_plugin_thunderbolt = shared_module('fu_plugin_thunderbolt',
   fu_hash,
   sources : [
     'fu-plugin-thunderbolt.c',
+    'fu-thunderbolt-device.c',
     'fu-thunderbolt-image.c',
   ],
   include_directories : [
@@ -57,6 +63,7 @@ if get_option('tests') and umockdev.found() and gio.version().version_compare('>
     sources : [
       'fu-self-test.c',
       'fu-plugin-thunderbolt.c',
+      'fu-thunderbolt-device.c',
       'fu-thunderbolt-image.c',
     ],
     include_directories : [
