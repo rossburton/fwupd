@@ -9,7 +9,7 @@
 #include <string.h>
 #include <glib.h>
 
-#include "fu-thunderbolt-image.h"
+#include "fu-thunderbolt-firmware.h"
 #include "fu-plugin-vfuncs.h"
 #include "fu-hash.h"
 
@@ -38,7 +38,7 @@ main (int argc, char **argv)
 	gchar *data = NULL;
 	g_autoptr(GBytes) image = NULL;
 	g_autoptr(GBytes) controller = NULL;
-	FuPluginValidation validation;
+	gboolean validation;
 
 	if (argc < 2 || argc > 3) {
 		g_print ("Usage: %s <filename> [<controller>]\n", argv[0]);
@@ -82,9 +82,9 @@ main (int argc, char **argv)
 		controller = g_bytes_new_take (controller_data, controller_len);
 	}
 
-	validation = fu_thunderbolt_image_validate (controller, image, &error);
+	validation = fu_thunderbolt_firmware_validate (controller, image, &error);
 	g_assert_no_error (error);
-	g_assert_cmpint (validation, ==, VALIDATION_PASSED);
+	g_assert_true (validation);
 
 	g_print ("test passed\n");
 	return 0;

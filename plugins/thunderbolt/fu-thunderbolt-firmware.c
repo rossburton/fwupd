@@ -1,15 +1,30 @@
 /*
  * Copyright (C) 2017 Intel Corporation.
+ * Copyright (C) 2020 Richard Hughes <richard@hughsie.com>
  *
  * SPDX-License-Identifier: LGPL-2.1+
  */
 
 #include "config.h"
 
-#include "fu-thunderbolt-image.h"
-
 #include <string.h>
+#include <gio/gio.h>
 #include <libfwupd/fwupd-error.h>
+
+#include "fu-thunderbolt-firmware.h"
+
+struct _FuThunderboltFirmware {
+	FuFirmwareClass		 parent_instance;
+};
+
+G_DEFINE_TYPE (FuThunderboltFirmware, fu_thunderbolt_firmware, FU_TYPE_FIRMWARE)
+
+static void
+fu_thunderbolt_firmware_to_string (FuFirmware *firmware, guint idt, GString *str)
+{
+//	FuThunderboltFirmware *self = FU_THUNDERBOLT_FIRMWARE (firmware);
+//	fu_common_string_append_kx (str, idt, "AppType", self->app_type);
+}
 
 enum FuThunderboltSection {
 	DIGITAL_SECTION,
@@ -641,10 +656,10 @@ compare_pd_existence (guint16 id,
 	return TRUE;
 }
 
-FuPluginValidation
-fu_thunderbolt_image_validate (GBytes  *controller_fw,
-			       GBytes  *blob_fw,
-			       GError **error)
+gboolean
+fu_thunderbolt_firmware_validate (GBytes *controller_fw,
+				  GBytes *blob_fw,
+				  GError **error)
 {
 	gboolean is_host;
 	guint16 device_id;
@@ -670,13 +685,13 @@ fu_thunderbolt_image_validate (GBytes  *controller_fw,
 
 	image_sections[DIGITAL_SECTION] = read_farb_pointer (&image, error);
 	if (image_sections[DIGITAL_SECTION] == 0)
-		return VALIDATION_FAILED;
+		return FALSE;
 
 	if (!read_bool (&is_host_loc, &controller, &is_host, error))
-		return VALIDATION_FAILED;
+		return FALSE;
 
 	if (!read_uint16 (&device_id_loc, &controller, &device_id, error))
-		return VALIDATION_FAILED;
+		return FALSE;
 
 	hw_info = get_hw_info (device_id);
 	if (hw_info == NULL) {
@@ -684,46 +699,46 @@ fu_thunderbolt_image_validate (GBytes  *controller_fw,
 			g_set_error (error,
 				     FWUPD_ERROR, FWUPD_ERROR_NOT_SUPPORTED,
 				     "Unknown controller");
-			return VALIDATION_FAILED;
+			return FALSE;
 		}
 		hw_info = &unknown;
 	}
 
 	if (!compare (&is_host_loc, &controller, &image, &compare_result, error))
-		return VALIDATION_FAILED;
+		return FALSE;
 	if (!compare_result) {
 		g_set_error (error,
 			     FWUPD_ERROR, FWUPD_ERROR_INVALID_FILE,
 			     "The FW image file is for a %s controller",
 			     is_host ? "device" : "host");
-		return VALIDATION_FAILED;
+		return FALSE;
 	}
 
 	if (!compare (&device_id_loc, &controller, &image, &compare_result, error))
-		return VALIDATION_FAILED;
+		return FALSE;
 	if (!compare_result) {
 		g_set_error_literal (error,
 				     FWUPD_ERROR, FWUPD_ERROR_INVALID_FILE,
 				     "The FW image file is for a different HW type");
-		return VALIDATION_FAILED;
+		return FALSE;
 	}
 
 	if (!read_sections (&controller, is_host, hw_info->gen, error))
-		return VALIDATION_FAILED;
+		return FALSE;
 	if (missing_needed_drom (&controller, is_host, hw_info->gen)) {
 		g_set_error_literal (error,
 				     FWUPD_ERROR, FWUPD_ERROR_READ,
 				     "Can't find needed FW sections in the controller");
-		return VALIDATION_FAILED;
+		return FALSE;
 	}
 
 	if (!read_sections (&image, is_host, hw_info->gen, error))
-		return VALIDATION_FAILED;
+		return FALSE;
 	if (missing_needed_drom (&image, is_host, hw_info->gen)) {
 		g_set_error_literal (error,
 				     FWUPD_ERROR, FWUPD_ERROR_INVALID_FILE,
 				     "Can't find needed FW sections in the FW image file");
-		return VALIDATION_FAILED;
+		return FALSE;
 	}
 
 	if (controller.sections[DROM_SECTION] != 0) {
@@ -734,11 +749,11 @@ fu_thunderbolt_image_validate (GBytes  *controller_fw,
 		};
 		locations = drom_locations;
 		if (!compare_locations (&locations, &controller, &image, error))
-			return VALIDATION_FAILED;
+			return FALSE;
 	}
 
 	if (!compare_pd_existence (hw_info->id, &controller, &image, error))
-		return VALIDATION_FAILED;
+		return FALSE;
 
 	/*
 	 * 0 is for the unknown device case, for being future-compatible with
@@ -746,8 +761,13 @@ fu_thunderbolt_image_validate (GBytes  *controller_fw,
 	 * vendor and model IDs that were validated already, but those should be
 	 * good enough validation.
 	 */
-	if (hw_info->id == 0)
-		return UNKNOWN_DEVICE;
+	if (hw_info->id == 0) {
+		g_set_error_literal (error,
+				     G_IO_ERROR,
+				     G_IO_ERROR_NOT_SUPPORTED,
+				     "no supported");
+		return FALSE;
+	}
 
 	if (is_host) {
 		locations = get_host_locations (hw_info->id);
@@ -755,33 +775,33 @@ fu_thunderbolt_image_validate (GBytes  *controller_fw,
 			g_set_error_literal (error,
 					     FWUPD_ERROR, FWUPD_ERROR_NOT_SUPPORTED,
 					     "FW locations to check not found for this controller");
-			return VALIDATION_FAILED;
+			return FALSE;
 		}
 	} else {
 		locations = get_device_locations (hw_info->id, &controller,
 						  &image, error);
 		if (locations == NULL) {
 			/* error is set already by the above */
-			return VALIDATION_FAILED;
+			return FALSE;
 		}
 	}
 
 	if (!compare_locations (&locations, &controller, &image, error))
-		return VALIDATION_FAILED;
+		return FALSE;
 
 	if (is_host && hw_info->ports == 2) {
 		locations++;
 		if (!compare_locations (&locations, &controller, &image, error))
-			return VALIDATION_FAILED;
+			return FALSE;
 	}
 
-	return VALIDATION_PASSED;
+	return TRUE;
 }
 
 gboolean
-fu_thunderbolt_image_controller_is_native (GBytes    *controller_fw,
-					   gboolean  *is_native,
-					   GError   **error)
+fu_thunderbolt_firmware_controller_is_native (GBytes *controller_fw,
+					      gboolean *is_native,
+					      GError **error)
 {
 	guint32 controller_sections[SECTION_COUNT] = { [DIGITAL_SECTION] = 0 };
 	gsize fw_size;
@@ -793,4 +813,46 @@ fu_thunderbolt_image_controller_is_native (GBytes    *controller_fw,
 		.description = "Native",
 		.mask = 0x20 };
 	return read_bool (&location, &controller, is_native, error);
+}
+
+static gboolean
+fu_thunderbolt_firmware_parse (FuFirmware *firmware,
+			       GBytes *fw,
+			       guint64 addr_start,
+			       guint64 addr_end,
+			       FwupdInstallFlags flags,
+			       GError **error)
+{
+//	FuThunderboltFirmware *self = FU_THUNDERBOLT_FIRMWARE (firmware);
+	g_autoptr(FuFirmwareImage) img = fu_firmware_image_new (fw);
+	fu_firmware_add_image (firmware, img);
+	return TRUE;
+}
+
+static void
+fu_thunderbolt_firmware_init (FuThunderboltFirmware *self)
+{
+}
+
+static void
+fu_thunderbolt_firmware_finalize (GObject *object)
+{
+//	FuThunderboltFirmware *self = FU_THUNDERBOLT_FIRMWARE (object);
+//	G_OBJECT_CLASS (fu_thunderbolt_firmware_parent_class)->finalize (object);
+}
+
+static void
+fu_thunderbolt_firmware_class_init (FuThunderboltFirmwareClass *klass)
+{
+	GObjectClass *object_class = G_OBJECT_CLASS (klass);
+	FuFirmwareClass *klass_firmware = FU_FIRMWARE_CLASS (klass);
+	object_class->finalize = fu_thunderbolt_firmware_finalize;
+	klass_firmware->parse = fu_thunderbolt_firmware_parse;
+	klass_firmware->to_string = fu_thunderbolt_firmware_to_string;
+}
+
+FuFirmware *
+fu_thunderbolt_firmware_new (void)
+{
+	return FU_FIRMWARE (g_object_new (FU_TYPE_THUNDERBOLT_FIRMWARE, NULL));
 }

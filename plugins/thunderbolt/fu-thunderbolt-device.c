@@ -17,7 +17,7 @@
 
 #include "fu-device-metadata.h"
 #include "fu-thunderbolt-device.h"
-#include "fu-thunderbolt-image.h"
+#include "fu-thunderbolt-firmware.h"
 
 struct _FuThunderboltDevice {
 	FuUdevDevice		 parent_instance;
@@ -89,7 +89,7 @@ fu_thunderbolt_device_is_native (FuThunderboltDevice *self, gboolean *is_native,
 	if (controller_fw == NULL)
 		return FALSE;
 
-	return fu_thunderbolt_image_controller_is_native (controller_fw,
+	return fu_thunderbolt_firmware_controller_is_native (controller_fw,
 							  is_native,
 							  error);
 }
@@ -492,60 +492,43 @@ fu_thunderbolt_device_write_data (FuThunderboltDevice	*self,
 	return g_output_stream_close (os, NULL, error);
 }
 
-static FuPluginValidation
-fu_thunderbolt_device_validate_firmware (FuThunderboltDevice	*self,
-					 GBytes			*blob_fw,
-					 GError			**error)
-{
-	g_autoptr(GFile) nvmem = NULL;
-	g_autoptr(GBytes) controller_fw = NULL;
-	gchar *content;
-	gsize length;
-
-	nvmem = fu_thunderbolt_device_find_nvmem (self, TRUE, error);
-	if (nvmem == NULL)
-		return VALIDATION_FAILED;
-
-	if (!g_file_load_contents (nvmem, NULL, &content, &length, NULL, error))
-		return VALIDATION_FAILED;
-
-	controller_fw = g_bytes_new_take (content, length);
-	return fu_thunderbolt_image_validate (controller_fw, blob_fw, error);
-}
-
-static gboolean
-fu_thunderbolt_device_write_firmware (FuDevice *device,
-				      FuFirmware *firmware,
-				      FwupdInstallFlags flags,
-				      GError **error)
+static FuFirmware *
+fu_thunderbolt_device_prepare_firmware (FuDevice *device,
+					GBytes *fw,
+					FwupdInstallFlags flags,
+					GError **error)
 {
 	FuThunderboltDevice *self = FU_THUNDERBOLT_DEVICE (device);
-	gboolean install_force = (flags & FWUPD_INSTALL_FLAG_FORCE) != 0;
 	gboolean device_ignore_validation = fu_device_has_flag (device, FWUPD_DEVICE_FLAG_IGNORE_VALIDATION);
-	FuPluginValidation validation;
+	gboolean install_force = (flags & FWUPD_INSTALL_FLAG_FORCE) != 0;
+	gboolean ret;
+	gchar *content;
+	gsize length;
+	g_autoptr(FuFirmware) firmware = fu_thunderbolt_firmware_new ();
+	g_autoptr(GBytes) controller_fw = NULL;
 	g_autoptr(GError) error_local = NULL;
-	g_autoptr(GBytes) blob_fw = NULL;
+	g_autoptr(GFile) nvmem = NULL;
 
-	/* get default image */
-	blob_fw = fu_firmware_get_image_default_bytes (firmware, error);
-	if (blob_fw == NULL)
-		return FALSE;
+	/* parse */
+	if (!fu_firmware_parse (firmware, fw, flags, error))
+		return NULL;
 
-	validation = fu_thunderbolt_device_validate_firmware (self,
-							      blob_fw,
-							      &error_local);
-	if (validation != VALIDATION_PASSED) {
+	/* get current NVMEM */
+	nvmem = fu_thunderbolt_device_find_nvmem (self, TRUE, error);
+	if (nvmem == NULL)
+		return NULL;
+	if (!g_file_load_contents (nvmem, NULL, &content, &length, NULL, error))
+		return NULL;
+
+	controller_fw = g_bytes_new_take (content, length);
+	ret = fu_thunderbolt_firmware_validate (controller_fw, fw, &error_local);
+	if (!ret) {
 		g_autofree gchar* msg = NULL;
-		switch (validation) {
-		case VALIDATION_FAILED:
+		if (g_error_matches (error_local, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED)) {
+			msg = g_strdup ("firmware validation seems to be passed but the device is unknown");
+		} else {
 			msg = g_strdup_printf ("could not validate firmware: %s",
 					       error_local->message);
-			break;
-		case UNKNOWN_DEVICE:
-			msg = g_strdup ("firmware validation seems to be passed but the device is unknown");
-			break;
-		default:
-			break;
 		}
 		if (!install_force && !device_ignore_validation) {
 			g_set_error (error,
@@ -558,6 +541,24 @@ fu_thunderbolt_device_write_firmware (FuDevice *device,
 		}
 		g_warning ("%s", msg);
 	}
+
+	/* success */
+	return g_steal_pointer (&firmware);
+}
+
+static gboolean
+fu_thunderbolt_device_write_firmware (FuDevice *device,
+				      FuFirmware *firmware,
+				      FwupdInstallFlags flags,
+				      GError **error)
+{
+	FuThunderboltDevice *self = FU_THUNDERBOLT_DEVICE (device);
+	g_autoptr(GBytes) blob_fw = NULL;
+
+	/* get default image */
+	blob_fw = fu_firmware_get_image_default_bytes (firmware, error);
+	if (blob_fw == NULL)
+		return FALSE;
 
 	fu_device_set_status (device, FWUPD_STATUS_DEVICE_WRITE);
 	if (!fu_thunderbolt_device_write_data (self, blob_fw, error)) {
@@ -605,6 +606,7 @@ fu_thunderbolt_device_class_init (FuThunderboltDeviceClass *klass)
 	object_class->finalize = fu_thunderbolt_device_finalize;
 	klass_device->to_string = fu_thunderbolt_device_to_string;
 	klass_device->setup = fu_thunderbolt_device_setup;
+	klass_device->prepare_firmware = fu_thunderbolt_device_prepare_firmware;
 	klass_device->write_firmware = fu_thunderbolt_device_write_firmware;
 	klass_device->attach = fu_thunderbolt_device_attach;
 	klass_udev_device->probe = fu_thunderbolt_device_probe;
