@@ -16,14 +16,10 @@ G_DECLARE_FINAL_TYPE (FuThunderboltFirmware, fu_thunderbolt_firmware, FU,THUNDER
 #define FU_TBT_OFFSET_NATIVE		0x7B
 #define FU_TBT_CHUNK_SZ			0x40
 
-FuFirmware	*fu_thunderbolt_firmware_new			(void);
-
-//FIXME: remove -- move to parse
-gboolean	 fu_thunderbolt_firmware_validate		(GBytes  *controller_fw,
-								 GBytes  *blob_fw,
-								 GError **error);
-
-//FIXME: take a FuFirmware instead
-gboolean	 fu_thunderbolt_firmware_controller_is_native	(GBytes    *controller_fw,
-								 gboolean  *is_native,
-								 GError   **error);
+FuThunderboltFirmware *fu_thunderbolt_firmware_new	(void);
+gboolean	 fu_thunderbolt_firmware_is_host	(FuThunderboltFirmware	*self);
+gboolean	 fu_thunderbolt_firmware_is_native	(FuThunderboltFirmware	*self);
+gboolean	 fu_thunderbolt_firmware_get_has_pd	(FuThunderboltFirmware	*self);
+guint16		 fu_thunderbolt_firmware_get_device_id	(FuThunderboltFirmware	*self);
+guint16		 fu_thunderbolt_firmware_get_vendor_id	(FuThunderboltFirmware	*self);
+guint16		 fu_thunderbolt_firmware_get_model_id	(FuThunderboltFirmware	*self);

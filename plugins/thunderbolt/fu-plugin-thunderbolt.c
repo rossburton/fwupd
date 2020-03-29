@@ -11,6 +11,7 @@
 #include "fu-plugin-vfuncs.h"
 #include "fu-hash.h"
 #include "fu-thunderbolt-device.h"
+#include "fu-thunderbolt-firmware.h"
 
 static gboolean
 fu_plugin_thunderbolt_safe_kernel (FuPlugin *plugin, GError **error)
@@ -53,6 +54,7 @@ fu_plugin_init (FuPlugin *plugin)
 	fu_plugin_set_build_hash (plugin, FU_BUILD_HASH);
 	fu_plugin_add_udev_subsystem (plugin, "thunderbolt");
 	fu_plugin_set_device_gtype (plugin, FU_TYPE_THUNDERBOLT_DEVICE);
+	fu_plugin_add_firmware_gtype (plugin, "thunderbolt", FU_TYPE_THUNDERBOLT_FIRMWARE);
 	/* dell-dock plugin uses a slower bus for flashing */
 	fu_plugin_add_rule (plugin, FU_PLUGIN_RULE_BETTER_THAN, "dell_dock");
 }

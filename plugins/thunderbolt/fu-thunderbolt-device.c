@@ -15,6 +15,7 @@
 #include <unistd.h>
 #include <errno.h>
 
+#include "fu-common.h"
 #include "fu-device-metadata.h"
 #include "fu-thunderbolt-device.h"
 #include "fu-thunderbolt-firmware.h"
@@ -67,12 +68,15 @@ fu_thunderbolt_device_find_nvmem (FuThunderboltDevice	*self,
 }
 
 static gboolean
-fu_thunderbolt_device_is_native (FuThunderboltDevice *self, gboolean *is_native, GError **error)
+fu_thunderbolt_device_is_native (FuThunderboltDevice *self,
+				 gboolean *is_native,
+				 GError **error)
 {
 	gsize nr_chunks;
 	g_autoptr(GFile) nvmem = NULL;
 	g_autoptr(GBytes) controller_fw = NULL;
 	g_autoptr(GInputStream) istr = NULL;
+	g_autoptr(FuThunderboltFirmware) firmware = fu_thunderbolt_firmware_new ();
 
 	nvmem = fu_thunderbolt_device_find_nvmem (self, TRUE, error);
 	if (nvmem == NULL)
@@ -88,10 +92,13 @@ fu_thunderbolt_device_is_native (FuThunderboltDevice *self, gboolean *is_native,
 						   NULL, error);
 	if (controller_fw == NULL)
 		return FALSE;
-
-	return fu_thunderbolt_firmware_controller_is_native (controller_fw,
-							  is_native,
-							  error);
+	if (!fu_firmware_parse (FU_FIRMWARE (firmware),
+				controller_fw,
+				FWUPD_INSTALL_FLAG_NONE,
+				error))
+		return FALSE;
+	*is_native = fu_thunderbolt_firmware_is_native (firmware);
+	return TRUE;
 }
 
 static gboolean
@@ -499,51 +506,76 @@ fu_thunderbolt_device_prepare_firmware (FuDevice *device,
 					GError **error)
 {
 	FuThunderboltDevice *self = FU_THUNDERBOLT_DEVICE (device);
-	gboolean device_ignore_validation = fu_device_has_flag (device, FWUPD_DEVICE_FLAG_IGNORE_VALIDATION);
-	gboolean install_force = (flags & FWUPD_INSTALL_FLAG_FORCE) != 0;
-	gboolean ret;
-	gchar *content;
-	gsize length;
-	g_autoptr(FuFirmware) firmware = fu_thunderbolt_firmware_new ();
+	g_autoptr(FuThunderboltFirmware) firmware = fu_thunderbolt_firmware_new ();
+	g_autoptr(FuThunderboltFirmware) firmware_old = fu_thunderbolt_firmware_new ();
 	g_autoptr(GBytes) controller_fw = NULL;
 	g_autoptr(GError) error_local = NULL;
 	g_autoptr(GFile) nvmem = NULL;
 
 	/* parse */
-	if (!fu_firmware_parse (firmware, fw, flags, error))
+	if (!fu_firmware_parse (FU_FIRMWARE (firmware), fw, flags, error))
 		return NULL;
 
 	/* get current NVMEM */
 	nvmem = fu_thunderbolt_device_find_nvmem (self, TRUE, error);
 	if (nvmem == NULL)
 		return NULL;
-	if (!g_file_load_contents (nvmem, NULL, &content, &length, NULL, error))
+	controller_fw = g_file_load_bytes (nvmem, NULL, NULL, error);
+	if (!fu_firmware_parse (FU_FIRMWARE (firmware_old), controller_fw, flags, error))
 		return NULL;
-
-	controller_fw = g_bytes_new_take (content, length);
-	ret = fu_thunderbolt_firmware_validate (controller_fw, fw, &error_local);
-	if (!ret) {
-		g_autofree gchar* msg = NULL;
-		if (g_error_matches (error_local, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED)) {
-			msg = g_strdup ("firmware validation seems to be passed but the device is unknown");
-		} else {
-			msg = g_strdup_printf ("could not validate firmware: %s",
-					       error_local->message);
-		}
-		if (!install_force && !device_ignore_validation) {
+	if (fu_thunderbolt_firmware_is_host (firmware) !=
+	    fu_thunderbolt_firmware_is_host (firmware_old)) {
+		g_set_error (error,
+			     FWUPD_ERROR,
+			     FWUPD_ERROR_INVALID_FILE,
+			     "incorrect firmware mode, got %s, expected %s",
+			     fu_thunderbolt_firmware_is_host (firmware) ? "host" : "device",
+			     fu_thunderbolt_firmware_is_host (firmware_old) ? "host" : "device");
+		return NULL;
+	}
+	if (fu_thunderbolt_firmware_get_vendor_id (firmware) !=
+	    fu_thunderbolt_firmware_get_vendor_id (firmware_old)) {
+		g_set_error (error,
+			     FWUPD_ERROR,
+			     FWUPD_ERROR_INVALID_FILE,
+			     "incorrect device vendor, got 0x%04x, expected 0x%04x",
+			     fu_thunderbolt_firmware_get_vendor_id (firmware),
+			     fu_thunderbolt_firmware_get_vendor_id (firmware_old));
+		return NULL;
+	}
+	if (fu_thunderbolt_firmware_get_device_id (firmware) !=
+	    fu_thunderbolt_firmware_get_device_id (firmware_old)) {
+		g_set_error (error,
+			     FWUPD_ERROR,
+			     FWUPD_ERROR_INVALID_FILE,
+			     "incorrect device type, got 0x%04x, expected 0x%04x",
+			     fu_thunderbolt_firmware_get_device_id (firmware),
+			     fu_thunderbolt_firmware_get_device_id (firmware_old));
+		return NULL;
+	}
+	if ((flags & FWUPD_INSTALL_FLAG_FORCE) == 0) {
+		if (fu_thunderbolt_firmware_get_model_id (firmware) !=
+		    fu_thunderbolt_firmware_get_model_id (firmware_old)) {
 			g_set_error (error,
 				     FWUPD_ERROR,
 				     FWUPD_ERROR_INVALID_FILE,
-				     "%s. "
-				     "See https://github.com/fwupd/fwupd/wiki/Thunderbolt:-Validation-failed-or-unknown-device for more information.",
-				     msg);
-			return FALSE;
+				     "incorrect device model, got 0x%04x, expected 0x%04x",
+				     fu_thunderbolt_firmware_get_model_id (firmware),
+				     fu_thunderbolt_firmware_get_model_id (firmware_old));
+			return NULL;
 		}
-		g_warning ("%s", msg);
+		if (fu_thunderbolt_firmware_get_has_pd (firmware) !=
+		    fu_thunderbolt_firmware_get_has_pd (firmware_old)) {
+			g_set_error_literal (error,
+					     FWUPD_ERROR,
+					     FWUPD_ERROR_INVALID_FILE,
+					     "incorrect PD section");
+			return NULL;
+		}
 	}
 
 	/* success */
-	return g_steal_pointer (&firmware);
+	return FU_FIRMWARE (g_steal_pointer (&firmware));
 }
 
 static gboolean
