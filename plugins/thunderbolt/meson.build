@@ -29,28 +29,6 @@ fu_plugin_thunderbolt = shared_module('fu_plugin_thunderbolt',
   ],
 )
 
-cargs += '-DTESTDATADIR="' + join_paths(meson.source_root(), 'data', 'tests') + '"'
-executable('tbtfwucli',
-  fu_hash,
-  sources : [
-    'fu-thunderbolt-tool.c',
-  ],
-  include_directories : [
-    root_incdir,
-    fwupd_incdir,
-    fwupdplugin_incdir,
-  ],
-  c_args : cargs,
-  link_with : [
-    fu_plugin_thunderbolt,
-    fwupd,
-    fwupdplugin,
-  ],
-  dependencies : [
-    plugin_deps,
-  ],
-)
-
 install_data(['thunderbolt.conf'],
   install_dir:  join_paths(sysconfdir, 'fwupd')
 )
