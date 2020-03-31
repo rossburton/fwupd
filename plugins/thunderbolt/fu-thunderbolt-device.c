@@ -24,6 +24,7 @@ struct _FuThunderboltDevice {
 	FuUdevDevice		 parent_instance;
 	gboolean		 host;
 	gboolean		 safe_mode;
+	gboolean		 is_native;
 	gchar			*devpath;
 };
 
@@ -68,9 +69,7 @@ fu_thunderbolt_device_find_nvmem (FuThunderboltDevice	*self,
 }
 
 static gboolean
-fu_thunderbolt_device_is_native (FuThunderboltDevice *self,
-				 gboolean *is_native,
-				 GError **error)
+fu_thunderbolt_device_read_status_block (FuThunderboltDevice *self, GError **error)
 {
 	gsize nr_chunks;
 	g_autoptr(GFile) nvmem = NULL;
@@ -97,7 +96,7 @@ fu_thunderbolt_device_is_native (FuThunderboltDevice *self,
 				FWUPD_INSTALL_FLAG_NONE,
 				error))
 		return FALSE;
-	*is_native = fu_thunderbolt_firmware_is_native (firmware);
+	self->is_native = fu_thunderbolt_firmware_is_native (firmware);
 	return TRUE;
 }
 
@@ -287,6 +286,10 @@ fu_thunderbolt_device_setup (FuDevice *device, GError **error)
 	if (gen == 0)
 		g_debug ("Unable to read generation: %s", error_gen->message);
 
+	/* read the first block of firmware to get the is-native attribute */
+	if (!fu_thunderbolt_device_read_status_block (self, error))
+		return FALSE;
+
 	/* determine if host controller or not */
 	if (parent_name != NULL && g_str_has_prefix (parent_name, "domain")) {
 		self->host = TRUE;
@@ -326,21 +329,13 @@ fu_thunderbolt_device_setup (FuDevice *device, GError **error)
 		if (fu_thunderbolt_device_can_update (self)) {
 			g_autofree gchar *vendor_id = NULL;
 			g_autofree gchar *domain = g_path_get_basename (self->devpath);
-			gboolean is_native = FALSE;
 			/* USB4 controllers don't have a concept of legacy vs native
 			 * so don't try to read a native attribute from their NVM */
 			if (self->host && gen < 4) {
-				g_autoptr(GError) native_error = NULL;
-				if (!fu_thunderbolt_device_is_native (self,
-								      &is_native,
-								      &native_error)) {
-					g_warning ("failed to get native mode status: %s",
-						   native_error->message);
-				}
 				domain_id = g_strdup_printf ("TBT-%04x%04x%s-controller%s",
 							     (guint) vid,
 							     (guint) did,
-							     is_native ? "-native" : "",
+							     self->is_native ? "-native" : "",
 							     domain);
 			}
 			vendor_id = g_strdup_printf ("TBT:0x%04X", (guint) vid);
@@ -348,7 +343,7 @@ fu_thunderbolt_device_setup (FuDevice *device, GError **error)
 			device_id = g_strdup_printf ("TBT-%04x%04x%s",
 						     (guint) vid,
 						     (guint) did,
-						     is_native ? "-native" : "");
+						     self->is_native ? "-native" : "");
 			fu_device_add_flag (device, FWUPD_DEVICE_FLAG_UPDATABLE);
 			fu_device_add_flag (device, FWUPD_DEVICE_FLAG_DUAL_IMAGE);
 		} else {

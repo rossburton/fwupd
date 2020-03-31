@@ -400,6 +400,10 @@ fu_thunderbolt_firmware_parse (FuFirmware *firmware,
 	if (self->sections[_SECTION_DIGITAL] == 0)
 		return FALSE;
 
+	/* we're only reading the first chunk */
+	if (g_bytes_get_size (fw) == 0x80)
+		return TRUE;
+
 	/* host or device */
 	if (!fu_thunderbolt_firmware_read_uint8 (self,
 						 _SECTION_DIGITAL,
