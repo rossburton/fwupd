@@ -20,9 +20,18 @@ typedef enum {
 	_SECTION_LAST
 } FuThunderboltSection;
 
+typedef enum {
+	_FAMILY_FR,
+	_FAMILY_WR,
+	_FAMILY_AR,
+	_FAMILY_AR_C,
+	_FAMILY_TR,
+} FuThunderboltFamily;
+
 struct _FuThunderboltFirmware {
 	FuFirmwareClass			 parent_instance;
 	guint32				 sections[_SECTION_LAST];
+	FuThunderboltFamily		 family;
 	gboolean			 is_host;
 	gboolean			 is_native;
 	gboolean			 has_pd;
@@ -37,9 +46,10 @@ struct _FuThunderboltFirmware {
 G_DEFINE_TYPE (FuThunderboltFirmware, fu_thunderbolt_firmware, FU_TYPE_FIRMWARE)
 
 typedef struct {
-	guint16		 id;
-	guint		 gen;
-	guint		 ports;
+	guint16				 id;
+	guint				 gen;
+	FuThunderboltFamily		 family;
+	guint				 ports;
 } FuThunderboltHwInfo;
 
 enum {
@@ -88,15 +98,41 @@ fu_thunderbolt_firmware_get_model_id (FuThunderboltFirmware *self)
 	return self->model_id;
 }
 
+guint8
+fu_thunderbolt_firmware_get_flash_size (FuThunderboltFirmware *self)
+{
+	g_return_val_if_fail (FU_IS_THUNDERBOLT_FIRMWARE (self), 0);
+	return self->flash_size;
+}
+
+static const gchar *
+fu_thunderbolt_firmware_family_to_string (FuThunderboltFamily family)
+{
+	if (family == _FAMILY_FR)
+		return "FR";
+	if (family == _FAMILY_WR)
+		return "WR";
+	if (family == _FAMILY_AR)
+		return "AR";
+	if (family == _FAMILY_AR_C)
+		return "AR-C";
+	if (family == _FAMILY_TR)
+		return "TR";
+	return NULL;
+}
+
 static void
 fu_thunderbolt_firmware_to_string (FuFirmware *firmware, guint idt, GString *str)
 {
 	FuThunderboltFirmware *self = FU_THUNDERBOLT_FIRMWARE (firmware);
+	fu_common_string_append_kv (str, idt, "Family",
+				    fu_thunderbolt_firmware_family_to_string (self->family));
 	fu_common_string_append_kb (str, idt, "IsHost", self->is_host);
 	fu_common_string_append_kb (str, idt, "IsNative", self->is_native);
 	fu_common_string_append_kx (str, idt, "DeviceId", self->device_id);
 	fu_common_string_append_kx (str, idt, "VendorId", self->vendor_id);
 	fu_common_string_append_kx (str, idt, "ModelId", self->model_id);
+	fu_common_string_append_kx (str, idt, "FlashSize", self->flash_size);
 	fu_common_string_append_kx (str, idt, "Generation", self->gen);
 	fu_common_string_append_kx (str, idt, "Ports", self->ports);
 	fu_common_string_append_kb (str, idt, "HasPd", self->has_pd);
@@ -368,19 +404,20 @@ fu_thunderbolt_firmware_parse (FuFirmware *firmware,
 	FuThunderboltFirmware *self = FU_THUNDERBOLT_FIRMWARE (firmware);
 	guint8 tmp = 0;
 	static const FuThunderboltHwInfo hw_info_arr[] = {
-		{ 0x156D, 2, 2 }, /* FR 4C */
-		{ 0x156B, 2, 1 }, /* FR 2C */
-		{ 0x157E, 2, 1 }, /* WR */
-		{ 0x1578, 3, 2 }, /* AR 4C */
-		{ 0x1576, 3, 1 }, /* AR 2C */
-		{ 0x15C0, 3, 1 }, /* AR LP */
-		{ 0x15D3, 3, 2 }, /* AR-C 4C */
-		{ 0x15DA, 3, 1 }, /* AR-C 2C */
-		{ 0x15E7, 3, 1 }, /* TR 2C */
-		{ 0x15EA, 3, 2 }, /* TR 4C */
-		{ 0x15EF, 3, 2 }, /* TR 4C device */
+		{ 0x156D, 2, _FAMILY_FR, 2 }, /* FR 4C */
+		{ 0x156B, 2, _FAMILY_FR, 1 }, /* FR 2C */
+		{ 0x157E, 2, _FAMILY_WR, 1 }, /* WR */
+		{ 0x1578, 3, _FAMILY_AR, 2 }, /* AR 4C */
+		{ 0x1576, 3, _FAMILY_AR, 1 }, /* AR 2C */
+		{ 0x15C0, 3, _FAMILY_AR, 1 }, /* AR LP */
+		{ 0x15D3, 3, _FAMILY_AR_C, 2 }, /* AR-C 4C */
+		{ 0x15DA, 3, _FAMILY_AR_C, 1 }, /* AR-C 2C */
+		{ 0x15E7, 3, _FAMILY_TR, 1 }, /* TR 2C */
+		{ 0x15EA, 3, _FAMILY_TR, 2 }, /* TR 4C */
+		{ 0x15EF, 3, _FAMILY_TR, 2 }, /* TR 4C device */
 		{ 0 }
 	};
+
 	g_autoptr(FuFirmwareImage) img = fu_firmware_image_new (fw);
 
 	/* add this straight away so we can read it without a self */
@@ -426,6 +463,7 @@ fu_thunderbolt_firmware_parse (FuFirmware *firmware,
 	/* this is best-effort */
 	for (guint i = 0; hw_info_arr[i].id != 0; i++) {
 		if (hw_info_arr[i].id == self->device_id) {
+			self->family = hw_info_arr[i].family;
 			self->gen = hw_info_arr[i].gen;
 			self->ports = hw_info_arr[i].ports;
 			break;
@@ -485,16 +523,24 @@ fu_thunderbolt_firmware_parse (FuFirmware *firmware,
 	}
 
 	if (!self->is_host) {
-		/* TODO: is this to be multiplied by a multiplier, e.g. 0x10000? */
-		if (!fu_thunderbolt_firmware_read_uint8 (self,
-							 _SECTION_DIGITAL,
-							 0x45,
-							 &tmp,
-							 error)) {
-			g_prefix_error (error, "failed to read is-host: ");
-			return FALSE;
+		switch (self->family) {
+		case _FAMILY_AR:
+		case _FAMILY_AR_C:
+		case _FAMILY_TR:
+			/* TODO: is this to be multiplied by a multiplier, e.g. 0x10000? */
+			if (!fu_thunderbolt_firmware_read_uint8 (self,
+								 _SECTION_DIGITAL,
+								 0x45,
+								 &tmp,
+								 error)) {
+				g_prefix_error (error, "failed to read is-host: ");
+				return FALSE;
+			}
+			self->flash_size = tmp & 0x07;
+			break;
+		default:
+			break;
 		}
-		self->flash_size = tmp & 0x07;
 	}
 
 	/* success */

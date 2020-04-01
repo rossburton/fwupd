@@ -567,6 +567,14 @@ fu_thunderbolt_device_prepare_firmware (FuDevice *device,
 					     "incorrect PD section");
 			return NULL;
 		}
+		if (fu_thunderbolt_firmware_get_flash_size (firmware) !=
+		    fu_thunderbolt_firmware_get_flash_size (firmware_old)) {
+			g_set_error_literal (error,
+					     FWUPD_ERROR,
+					     FWUPD_ERROR_INVALID_FILE,
+					     "incorrect flash size");
+			return NULL;
+		}
 	}
 
 	/* success */

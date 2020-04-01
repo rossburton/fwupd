@@ -23,3 +23,4 @@ gboolean	 fu_thunderbolt_firmware_get_has_pd	(FuThunderboltFirmware	*self);
 guint16		 fu_thunderbolt_firmware_get_device_id	(FuThunderboltFirmware	*self);
 guint16		 fu_thunderbolt_firmware_get_vendor_id	(FuThunderboltFirmware	*self);
 guint16		 fu_thunderbolt_firmware_get_model_id	(FuThunderboltFirmware	*self);
+guint8		 fu_thunderbolt_firmware_get_flash_size	(FuThunderboltFirmware	*self);
