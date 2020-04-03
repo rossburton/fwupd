@@ -27,6 +27,7 @@ typedef enum {
 	_FAMILY_AR,
 	_FAMILY_AR_C,
 	_FAMILY_TR,
+	_FAMILY_BB,
 } FuThunderboltFamily;
 
 struct _FuThunderboltFirmware {
@@ -119,6 +120,8 @@ fu_thunderbolt_firmware_family_to_string (FuThunderboltFamily family)
 		return "Alpine Ridge C";
 	if (family == _FAMILY_TR)
 		return "Titan Ridge";
+	if (family == _FAMILY_BB)
+		return "BB";
 	return "Unknown";
 }
 
@@ -416,6 +419,7 @@ fu_thunderbolt_firmware_parse (FuFirmware *firmware,
 		{ 0x15E7, 3, _FAMILY_TR, 1 }, /* TR 2C */
 		{ 0x15EA, 3, _FAMILY_TR, 2 }, /* TR 4C */
 		{ 0x15EF, 3, _FAMILY_TR, 2 }, /* TR 4C device */
+		{ 0x15EE, 3, _FAMILY_BB, 0 }, /* BB device */
 		{ 0 }
 	};
 
