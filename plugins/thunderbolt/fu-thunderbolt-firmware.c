@@ -21,6 +21,7 @@ typedef enum {
 } FuThunderboltSection;
 
 typedef enum {
+	_FAMILY_UNKNOWN,
 	_FAMILY_FR,
 	_FAMILY_WR,
 	_FAMILY_AR,
@@ -118,7 +119,7 @@ fu_thunderbolt_firmware_family_to_string (FuThunderboltFamily family)
 		return "AR-C";
 	if (family == _FAMILY_TR)
 		return "TR";
-	return NULL;
+	return "Unknown";
 }
 
 static void
