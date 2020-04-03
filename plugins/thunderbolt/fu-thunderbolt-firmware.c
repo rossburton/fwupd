@@ -110,15 +110,15 @@ static const gchar *
 fu_thunderbolt_firmware_family_to_string (FuThunderboltFamily family)
 {
 	if (family == _FAMILY_FR)
-		return "FR";
+		return "Falcon Ridge";
 	if (family == _FAMILY_WR)
-		return "WR";
+		return "Win Ridge";
 	if (family == _FAMILY_AR)
-		return "AR";
+		return "Alpine Ridge";
 	if (family == _FAMILY_AR_C)
-		return "AR-C";
+		return "Alpine Ridge C";
 	if (family == _FAMILY_TR)
-		return "TR";
+		return "Titan Ridge";
 	return "Unknown";
 }
 
