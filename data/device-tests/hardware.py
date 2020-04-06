@@ -9,6 +9,10 @@ import gi
 import os
 import requests
 import time
+import sys
+import glob
+import json
+from termcolor import colored
 
 gi.require_version('Fwupd', '2.0')
 
@@ -16,12 +20,13 @@ from gi.repository import Fwupd
 from gi.repository import Gio
 from gi.repository import GLib
 
-def _get_by_device_guid(client, guid):
+def _get_by_device_guids(client, guids):
     cancellable = Gio.Cancellable.new()
     devices = client.get_devices(cancellable)
     for d in devices:
-        if d.has_guid(guid):
-            return d
+        for guid in guids:
+            if d.has_guid(guid):
+                return d
     return None
 
 def _get_cache_file(fn):
@@ -39,52 +44,110 @@ def _get_cache_file(fn):
         f.close()
     return cachefn
 
-class Test:
-    def __init__(self, name, guid, has_runtime=True):
-        self.files = []
-        self.name = name
-        self.guid = guid
-        self.has_runtime = has_runtime
+class Test2:
+    def __init__(self, obj):
+        self.client = Fwupd.Client.new()
+        self.name = obj.get('name', 'Unknown')
+        self.guids = obj.get('guids', [])
+        self.releases = obj.get('releases', [])
+        self.has_runtime = obj.get('runtime', True)
+        self.interactive = obj.get('interactive', False)
+        self.disabled = obj.get('disabled', False)
+
+    def _info(self, msg):
+        print(colored('[INFO]'.ljust(10), 'blue'), msg)
+
+    def _warn(self, msg):
+        print(colored('[WARN]'.ljust(10), 'yellow'), msg)
+
+    def _failed(self, msg):
+        print(colored('[FAILED]'.ljust(10), 'red'), msg)
+
+    def _success(self, msg):
+        print(colored('[SUCCESS]'.ljust(10), 'green'), msg)
 
     def run(self):
 
-        # connect to fwupd
-        client = Fwupd.Client.new()
-        dev = _get_by_device_guid(client, self.guid)
+        print('Running test on {}'.format(self.name))
+        dev = _get_by_device_guids(self.client, self.guids)
         if not dev:
-            print("Skipping hardware test, no", self.name, "attached")
+            self._warn('no {} attached'.format(self.name))
             return
 
-        print(dev.get_name(), "is currently version", dev.get_version())
+        self._info('Current version {}'.format(dev.get_version()))
 
         # apply each file
-        for fn, ver in self.files:
+        for obj in self.releases:
+            ver = obj.get('version')
+            fn = obj.get('file')
             fn_cache = _get_cache_file(fn)
             if dev.get_version() == ver:
                 flags = Fwupd.InstallFlags.ALLOW_REINSTALL
+                self._info('Reinstalling with {}'.format(fn))
             else:
                 flags = Fwupd.InstallFlags.ALLOW_OLDER
+                self._info('Installing with {}'.format(fn))
             cancellable = Gio.Cancellable.new()
-            print("Installing", fn_cache)
-            client.install(dev.get_id(), fn_cache, flags, cancellable)
+
+            try:
+                self.client.install(dev.get_id(), fn_cache, flags, cancellable)
+            except gi.repository.GLib.Error as e:
+                self._failed('Could not install: {}'.format(e))
+                return
 
             # verify version
             if self.has_runtime:
-                dev = _get_by_device_guid(client, self.guid)
+                dev = _get_by_device_guids(self.client, self.guids)
                 if not dev:
-                    raise GLib.Error('Device did not come back: ' + self.name)
+                    self._failed('Device did not come back: ' + self.name)
+                    return
                 if not dev.get_version():
-                    raise GLib.Error('No version set after flash for: ' + self.name)
+                    self._failed('No version set after flash for: ' + self.name)
+                    return
                 if dev.get_version() != ver:
-                    raise GLib.Error('Got: ' + dev.get_version() + ', expected: ' + ver)
+                    self._failed('Got: ' + dev.get_version() + ', expected: ' + ver)
+                    return
+                self._success('Installed {}'.format(dev.get_version()))
+            else:
+                self._success('Assumed success (no runtime)')
 
-            # FIXME: wait for device to settle?
+            # wait for device to settle?
             time.sleep(2)
 
-    def add_file(self, fn, ver):
-        self.files.append((fn, ver))
+def run_test(obj):
+
+
+    # ensure GUID exists
+    sss
 
 if __name__ == '__main__':
+
+    # get manifests to parse
+    device_fns = []
+    if len(sys.argv) == 1:
+        device_fns.extend(glob.glob('devices/*.json'))
+    else:
+        for fn in sys.argv[1:]:
+            device_fns.append(fn)
+
+    # run each test
+    for fn in device_fns:
+        with open(fn, 'r') as f:
+            try:
+                obj = json.load(f)
+            except json.decoder.JSONDecodeError as e:
+                print('Failed to parse {}: {}'.format(fn, e))
+                continue
+        t = Test2(obj)
+        if t.disabled:
+            continue
+        if t.interactive:
+            continue
+        t.run()
+
+    sys.exit(0)
+
+    ddd
 
     tests = []
 
