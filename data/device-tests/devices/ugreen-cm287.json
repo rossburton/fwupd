@@ -1,0 +1,16 @@
+{
+  "name": "Ugreen CM287",
+  "guids": [
+    "790a1b00-9cf9-5220-af78-ef690d303fa8"
+  ],
+  "releases": [
+    {
+      "version": "7.99.17.0",
+      "file": "xxxx"
+    },
+    {
+      "version": "7.99.18.0",
+      "file": "xxxx"
+    }
+  ]
+}
