@@ -87,10 +87,10 @@ class DeviceTest:
                 return
             if dev.get_version() == ver:
                 flags = Fwupd.InstallFlags.ALLOW_REINSTALL
-                self._info('Reinstalling with {}'.format(fn))
+                self._info('Reinstalling version {}'.format(ver))
             else:
                 flags = Fwupd.InstallFlags.ALLOW_OLDER
-                self._info('Installing with {}'.format(fn))
+                self._info('Installing version {}'.format(ver))
             cancellable = Gio.Cancellable.new()
 
             try:

@@ -3,6 +3,7 @@
   "guids": [
     "443b9b32-7603-5c3a-bb30-291a7d8d6dbd"
   ],
+  "disabled": true,
   "releases": [
     {
       "version": "2.10",
