@@ -1819,6 +1819,7 @@ fu_engine_install_release (FuEngine *self,
 		} else {
 			fu_device_set_update_state (device, FWUPD_UPDATE_STATE_FAILED);
 		}
+		g_debug ("returned error was %s", error_local->message);
 		fu_device_set_update_error (device, error_local->message);
 		if ((flags & FWUPD_INSTALL_FLAG_NO_HISTORY) == 0 &&
 		    !fu_history_modify_device (self->history, device, error)) {
